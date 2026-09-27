@@ -12,7 +12,10 @@ RUN npm ci --ignore-scripts -w @odonto/api -w @odonto/shared --include-workspace
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 RUN npm run build -w @odonto/shared \
- && cd apps/api && npx prisma generate && npx nest build
+ && cd apps/api && npx prisma generate && npx nest build \
+ && npx tsc prisma/seed.ts --outDir dist/prisma-seed --module commonjs --moduleResolution node \
+      --target ES2022 --esModuleInterop --skipLibCheck --types node
+# El seed queda compilado en dist/prisma-seed/seed.js (en producción no se usa ts-node)
 
 # ---------- Runtime ----------
 FROM node:22-alpine

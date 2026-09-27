@@ -97,7 +97,7 @@ done
 
 # ---------------------------------------------------------------- 6. Datos iniciales
 info "Cargando datos iniciales…"
-docker compose exec -T api npx ts-node --transpile-only prisma/seed.ts
+docker compose exec -T api node dist/prisma-seed/seed.js
 
 # ---------------------------------------------------------------- Resumen
 GOOGLE_ID="$(grep '^GOOGLE_CLIENT_ID=' .env | cut -d= -f2- || true)"
