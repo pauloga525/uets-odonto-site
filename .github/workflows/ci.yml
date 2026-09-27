@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: odonto_test
+          POSTGRES_USER: odonto
+          POSTGRES_PASSWORD: odonto
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U odonto" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://odonto:odonto@localhost:5432/odonto_test?schema=public
+      TEST_DATABASE_URL: postgresql://odonto:odonto@localhost:5432/odonto_test?schema=public
+      JWT_ACCESS_SECRET: ci-secret-with-at-least-thirty-two-characters
+      DATA_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+        working-directory: apps/api
+      - name: Type-check API
+        run: npm run lint -w @odonto/api
+      - name: Pruebas unitarias
+        run: npm test
+      - name: Pruebas de integración (incluye concurrencia)
+        run: npm run test:e2e
+      - name: Build frontend
+        run: npm run build -w @odonto/web

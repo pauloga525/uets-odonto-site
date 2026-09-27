@@ -1,0 +1,186 @@
+// Esquema de datos — Sistema de Gestión de Citas
+// Reglas críticas que Prisma no expresa (índices parciales, CHECKs) están en
+// prisma/migrations/*_init/migration.sql
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DOCTOR
+  PATIENT
+}
+
+enum AppointmentStatus {
+  RESERVADA
+  INICIADA
+  EN_PROCESO
+  FINALIZADA
+  CANCELADA
+}
+
+model User {
+  id          String    @id @default(uuid()) @db.Uuid
+  googleSub   String?   @unique @map("google_sub")
+  email       String    @unique
+  name        String
+  avatarUrl   String?   @map("avatar_url")
+  role        Role      @default(PATIENT)
+  active      Boolean   @default(true)
+  consentAt   DateTime? @map("consent_at") @db.Timestamptz(3)
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  doctor              Doctor?
+  appointments        Appointment[]  @relation("PatientAppointments")
+  createdAppointments Appointment[]  @relation("AppointmentCreatedBy")
+  refreshTokens       RefreshToken[]
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model Doctor {
+  id          Int      @id @default(autoincrement())
+  userId      String   @unique @map("user_id") @db.Uuid
+  displayName String   @map("display_name")
+  specialty   String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user         User                    @relation(fields: [userId], references: [id])
+  periods      AvailabilityPeriod[]
+  exceptions   AvailabilityException[]
+  appointments Appointment[]
+
+  @@map("doctors")
+}
+
+model AvailabilityPeriod {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int      @map("doctor_id")
+  name      String
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  /// Días ISO habilitados: 1 = lunes … 7 = domingo
+  weekdays  Int[]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  doctor Doctor              @relation(fields: [doctorId], references: [id])
+  blocks AvailabilityBlock[]
+
+  @@index([doctorId, startDate, endDate])
+  @@map("availability_periods")
+}
+
+model AvailabilityBlock {
+  id        Int      @id @default(autoincrement())
+  periodId  Int      @map("period_id")
+  startTime DateTime @map("start_time") @db.Time(0)
+  endTime   DateTime @map("end_time") @db.Time(0)
+
+  period AvailabilityPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([periodId])
+  @@map("availability_blocks")
+}
+
+model AvailabilityException {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int      @map("doctor_id")
+  date      DateTime @db.Date
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  doctor Doctor @relation(fields: [doctorId], references: [id])
+
+  @@unique([doctorId, date])
+  @@map("availability_exceptions")
+}
+
+model Appointment {
+  id                    Int               @id @default(autoincrement())
+  patientId             String            @map("patient_id") @db.Uuid
+  doctorId              Int               @map("doctor_id")
+  appointmentDate       DateTime          @map("appointment_date") @db.Date
+  startTime             DateTime          @map("start_time") @db.Time(0)
+  endTime               DateTime          @map("end_time") @db.Time(0)
+  status                AppointmentStatus @default(RESERVADA)
+  /// Cifrado AES-256-GCM a nivel de aplicación
+  observations          String?
+  previousAppointmentId Int?              @map("previous_appointment_id")
+  createdById           String?           @map("created_by") @db.Uuid
+  cancelReason          String?           @map("cancel_reason")
+  /// Bloqueo optimista para transiciones de estado
+  version               Int               @default(0)
+  reservedAt            DateTime          @default(now()) @map("reserved_at") @db.Timestamptz(3)
+  startedAt             DateTime?         @map("started_at") @db.Timestamptz(3)
+  inProgressAt          DateTime?         @map("in_progress_at") @db.Timestamptz(3)
+  finishedAt            DateTime?         @map("finished_at") @db.Timestamptz(3)
+  cancelledAt           DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  patient   User          @relation("PatientAppointments", fields: [patientId], references: [id])
+  doctor    Doctor        @relation(fields: [doctorId], references: [id])
+  createdBy User?         @relation("AppointmentCreatedBy", fields: [createdById], references: [id])
+  previous  Appointment?  @relation("FollowUps", fields: [previousAppointmentId], references: [id])
+  followUps Appointment[] @relation("FollowUps")
+
+  @@index([doctorId, appointmentDate])
+  @@index([patientId, appointmentDate])
+  @@index([status])
+  @@map("appointments")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  entity     String
+  entityId   String?  @map("entity_id")
+  fromStatus String?  @map("from_status")
+  toStatus   String?  @map("to_status")
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("settings")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}

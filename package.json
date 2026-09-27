@@ -1,0 +1,25 @@
+{
+  "name": "sistema-odonto",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema de Gestión de Citas Médicas y Odontológicas — UETS",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @odonto/shared",
+    "build": "npm run build:shared && npm run build -w @odonto/api && npm run build -w @odonto/web",
+    "db:up": "docker compose up -d db",
+    "db:migrate": "npm run prisma:migrate -w @odonto/api",
+    "db:seed": "npm run prisma:seed -w @odonto/api",
+    "dev:api": "npm run start:dev -w @odonto/api",
+    "dev:web": "npm run start -w @odonto/web",
+    "test": "npm run test -w @odonto/api",
+    "test:e2e": "npm run test:e2e -w @odonto/api",
+    "postinstall": "npm run build:shared"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
