@@ -1,11 +1,8 @@
 name: sistema-odonto
 
 # Desarrollo:  docker compose up -d db
-# Producción:  sudo bash deploy/instalar-ubuntu.sh  (ver docs/DESPLIEGUE-UBUNTU.md)
-#   El instalador escribe COMPOSE_PROFILES en .env y luego basta con:  docker compose up -d
-#     prod    base de datos + API + Nginx (web) + respaldos
-#     caddy   HTTPS con Caddy + sslip.io (requiere puertos 80/443 abiertos)
-#     tunnel  Cloudflare Tunnel rápido (*.trycloudflare.com): sin abrir puertos; la dirección cambia al reiniciar
+# Producción:  sudo bash deploy/instalar-ubuntu.sh   (ver docs/DESPLIEGUE-UBUNTU.md)
+#              Publica la app con Cloudflare Tunnel (https://<palabras>.trycloudflare.com), sin abrir puertos.
 
 services:
   db:
@@ -49,40 +46,23 @@ services:
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     ports:
-      # Solo local: útil para diagnóstico (curl http://127.0.0.1:8080). El acceso público
-      # llega por Caddy o por Cloudflare Tunnel, nunca directamente.
+      # Solo local: útil para diagnóstico (curl http://127.0.0.1:8080).
+      # El acceso público llega únicamente por el túnel de Cloudflare.
       - "127.0.0.1:8080:80"
     depends_on:
       - api
     profiles: ["prod"]
 
-  # Caddy: HTTPS con certificado gratuito de Let's Encrypt (requiere puertos 80/443 abiertos)
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    environment:
-      APP_DOMAIN: ${APP_DOMAIN:-localhost}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - web
-    profiles: ["caddy"]
-
   # Cloudflare Tunnel rápido: publica Nginx en https://<palabras>.trycloudflare.com sin abrir puertos.
-  # La dirección se muestra con:  sudo bash deploy/tunel-url.sh
+  # La dirección actual se muestra con:  sudo bash deploy/tunel-url.sh
+  # Cambia si este contenedor se reinicia (hay que actualizarla en Google Cloud).
   tunnel:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate --url http://web:80
     depends_on:
       - web
-    profiles: ["tunnel"]
+    profiles: ["prod"]
 
   backup:
     image: postgres:16-alpine
@@ -103,5 +83,3 @@ services:
 
 volumes:
   db_data:
-  caddy_data:
-  caddy_config:

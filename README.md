@@ -119,9 +119,9 @@ Guía completa: **[docs/DESPLIEGUE-UBUNTU.md](docs/DESPLIEGUE-UBUNTU.md)**. En u
 sudo bash deploy/instalar-ubuntu.sh
 ```
 
-Instala Docker, crea el `.env` con secretos aleatorios y ofrece dos modos de publicación: **Cloudflare Tunnel rápido**
-(`*.trycloudflare.com`, sin abrir puertos; `deploy/tunel-url.sh` muestra la dirección actual) o **Caddy + sslip.io**
-(HTTPS con Let's Encrypt; requiere puertos 80/443). Detrás: **Nginx** → **API** → **PostgreSQL**. Incluye respaldos diarios.
+Instala Docker, crea el `.env` con secretos aleatorios y publica la app con **Cloudflare Tunnel**
+(`https://<palabras>.trycloudflare.com`, HTTPS de Cloudflare, sin abrir puertos). `deploy/tunel-url.sh` muestra la
+dirección actual, que cambia si el túnel se reinicia. Detrás: **Nginx** → **API** → **PostgreSQL**. Incluye respaldos diarios.
 
 ## Segunda etapa (pendiente)
 

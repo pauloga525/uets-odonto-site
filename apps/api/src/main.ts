@@ -9,7 +9,7 @@ import { AppConfig } from './config/app-config';
 
 export async function configureApp(app: NestExpressApplication) {
   const config = app.get(AppConfig);
-  // Confía en los proxies de la red interna (Caddy → Nginx en Docker) para obtener la IP real del cliente.
+  // Confía en los proxies de la red interna (cloudflared → Nginx en Docker) para obtener la IP real del cliente.
   app.set('trust proxy', 'loopback, linklocal, uniquelocal');
   app.disable('x-powered-by');
   app.use(

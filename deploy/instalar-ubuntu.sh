@@ -5,11 +5,9 @@
 #  Uso (desde la carpeta del proyecto):
 #     sudo bash deploy/instalar-ubuntu.sh
 #
-#  Modos de publicación (el script pregunta):
-#    1) Cloudflare Tunnel rápido → https://<palabras>.trycloudflare.com
-#       No abre puertos. La dirección cambia si el túnel se reinicia.
-#    2) Caddy + sslip.io         → https://citas.<IP-pública>.sslip.io
-#       Requiere redirigir los puertos 80 y 443 hacia el servidor.
+#  Publica la aplicación con Cloudflare Tunnel rápido:
+#     https://<palabras>.trycloudflare.com  — no abre puertos en el servidor ni en el router.
+#  La dirección cambia si el túnel se reinicia; consúltela con  sudo bash deploy/tunel-url.sh
 #
 #  Se puede ejecutar varias veces: conserva la base de datos y los secretos del .env.
 # =============================================================================
@@ -61,42 +59,10 @@ else
   info "Se conserva el .env existente."
 fi
 
-# ---------------------------------------------------------------- Modo de publicación
-cat <<'EOF'
-
-¿Cómo se publicará la aplicación?
-  1) Cloudflare Tunnel rápido (*.trycloudflare.com) — no abre puertos; la dirección cambia al reiniciar
-  2) Caddy + sslip.io — dirección fija; requiere redirigir los puertos 80 y 443 hacia este servidor
-EOF
-read -rp "Opción [1/2] (Enter = 1): " MODE
-MODE="${MODE:-1}"
-
-case "$MODE" in
-  1)
-    set_env COMPOSE_PROFILES "prod,tunnel"
-    # Vacíos = la app deduce su dirección de cada petición (se adapta cuando el túnel cambia)
-    set_env WEB_URL ""
-    set_env GOOGLE_REDIRECT_URI ""
-    ;;
-  2)
-    IP="$(curl -fsS --max-time 10 https://api.ipify.org || true)"
-    read -rp "IP pública del servidor [${IP}]: " IP_IN
-    IP="${IP_IN:-$IP}"
-    if ! [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then echo "IP inválida"; exit 1; fi
-    DOMAIN="citas.${IP//./-}.sslip.io"
-    set_env COMPOSE_PROFILES "prod,caddy"
-    set_env APP_DOMAIN "$DOMAIN"
-    set_env WEB_URL "https://${DOMAIN}"
-    set_env GOOGLE_REDIRECT_URI "https://${DOMAIN}/api/v1/auth/google/callback"
-    if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-      ufw allow 80/tcp; ufw allow 443/tcp; ufw allow 443/udp
-    fi
-    ;;
-  *) echo "Opción inválida"; exit 1 ;;
-esac
-
-# Detiene el servicio del otro modo (por si se cambió de modo)
-docker compose --profile caddy --profile tunnel stop caddy tunnel >/dev/null 2>&1 || true
+set_env COMPOSE_PROFILES "prod"
+# Vacíos = la app deduce su dirección de cada visita (se adapta cuando cambia la del túnel)
+set_env WEB_URL ""
+set_env GOOGLE_REDIRECT_URI ""
 
 # ---------------------------------------------------------------- Levantar
 info "Construyendo y levantando la aplicación (la primera vez tarda varios minutos)…"
@@ -112,23 +78,7 @@ info "Cargando datos iniciales…"
 docker compose exec -T api node dist/prisma-seed/seed.js
 
 # ---------------------------------------------------------------- Resumen
-if [[ "$MODE" == "1" ]]; then
-  bash deploy/tunel-url.sh
-else
-  cat <<EOF
-
-=====================================================================
-  ✅ Aplicación desplegada:   https://${DOMAIN}
-=====================================================================
-  En Google Cloud → Clientes → su ID de cliente OAuth, agregue:
-    Orígenes autorizados de JavaScript:   https://${DOMAIN}
-    URI de redireccionamiento autorizados: https://${DOMAIN}/api/v1/auth/google/callback
-
-  El certificado HTTPS requiere que los puertos 80 y 443 lleguen a este servidor.
-  Revise:  sudo docker compose logs caddy
-=====================================================================
-EOF
-fi
+bash deploy/tunel-url.sh
 
 if [[ -z "$(get_env GOOGLE_CLIENT_ID)" ]]; then
   cat <<EOF
@@ -140,6 +90,6 @@ fi
 cat <<EOF
 
   Estado:     sudo docker compose ps
-  Registros:  sudo docker compose logs -f api
+  Registros:  sudo docker compose logs -f api tunnel
   Respaldos:  ${PROJECT_DIR}/backups
 EOF
