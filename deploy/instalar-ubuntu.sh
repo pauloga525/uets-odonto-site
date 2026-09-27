@@ -3,17 +3,15 @@
 #  Instalación del Sistema de Citas UETS en Ubuntu Server (22.04 / 24.04)
 #
 #  Uso (desde la carpeta del proyecto):
-#     sudo bash deploy/instalar-ubuntu.sh            # detecta la IP pública
-#     sudo bash deploy/instalar-ubuntu.sh 200.1.2.3  # o indíquela manualmente
+#     sudo bash deploy/instalar-ubuntu.sh
 #
-#  Qué hace:
-#   1. Instala Docker y Docker Compose (paquetes oficiales de Ubuntu)
-#   2. Abre los puertos 80 y 443 en el firewall (si UFW está activo)
-#   3. Arma el dominio gratuito  citas.<IP-con-guiones>.sslip.io
-#   4. Crea el archivo .env con secretos aleatorios (solo si no existe)
-#   5. Construye y levanta la app con HTTPS automático (Caddy + Let's Encrypt)
-#   6. Carga los datos iniciales (configuración, admin, doctor, períodos)
-#  Se puede ejecutar varias veces sin perder datos.
+#  Modos de publicación (el script pregunta):
+#    1) Cloudflare Tunnel rápido → https://<palabras>.trycloudflare.com
+#       No abre puertos. La dirección cambia si el túnel se reinicia.
+#    2) Caddy + sslip.io         → https://citas.<IP-pública>.sslip.io
+#       Requiere redirigir los puertos 80 y 443 hacia el servidor.
+#
+#  Se puede ejecutar varias veces: conserva la base de datos y los secretos del .env.
 # =============================================================================
 set -euo pipefail
 
@@ -27,7 +25,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# ---------------------------------------------------------------- 1. Docker
+# ---------------------------------------------------------------- Docker
 if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
   info "Instalando Docker y Docker Compose…"
   apt-get update -y
@@ -37,27 +35,7 @@ else
   info "Docker ya está instalado: $(docker --version)"
 fi
 
-# ---------------------------------------------------------------- 2. Firewall
-if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-  info "Abriendo puertos 80 y 443 en UFW…"
-  ufw allow 80/tcp
-  ufw allow 443/tcp
-  ufw allow 443/udp
-fi
-
-# ---------------------------------------------------------------- 3. Dominio
-IP="${1:-}"
-if [[ -z "$IP" ]]; then
-  IP="$(curl -fsS --max-time 10 https://api.ipify.org || true)"
-fi
-if ! [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
-  echo "No se pudo detectar la IP pública. Indíquela:  sudo bash deploy/instalar-ubuntu.sh 200.1.2.3"
-  exit 1
-fi
-DOMAIN="citas.${IP//./-}.sslip.io"
-info "Dominio de la aplicación: https://${DOMAIN}"
-
-# ---------------------------------------------------------------- 4. .env
+# ---------------------------------------------------------------- .env
 set_env() { # set_env CLAVE VALOR  (crea o reemplaza la línea en .env)
   local key="$1" value="$2"
   if grep -q "^${key}=" .env; then
@@ -66,6 +44,7 @@ set_env() { # set_env CLAVE VALOR  (crea o reemplaza la línea en .env)
     echo "${key}=${value}" >> .env
   fi
 }
+get_env() { grep "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- || true; }
 
 if [[ ! -f .env ]]; then
   info "Creando .env de producción…"
@@ -79,15 +58,49 @@ if [[ ! -f .env ]]; then
   set_env BOOTSTRAP_DOCTOR_EMAIL "${DOCTOR_EMAIL,,}"
   chmod 600 .env
 else
-  info "Se conserva el .env existente (solo se actualiza el dominio)."
+  info "Se conserva el .env existente."
 fi
-set_env APP_DOMAIN "$DOMAIN"
-set_env WEB_URL "https://${DOMAIN}"
-set_env GOOGLE_REDIRECT_URI "https://${DOMAIN}/api/v1/auth/google/callback"
 
-# ---------------------------------------------------------------- 5. Levantar
+# ---------------------------------------------------------------- Modo de publicación
+cat <<'EOF'
+
+¿Cómo se publicará la aplicación?
+  1) Cloudflare Tunnel rápido (*.trycloudflare.com) — no abre puertos; la dirección cambia al reiniciar
+  2) Caddy + sslip.io — dirección fija; requiere redirigir los puertos 80 y 443 hacia este servidor
+EOF
+read -rp "Opción [1/2] (Enter = 1): " MODE
+MODE="${MODE:-1}"
+
+case "$MODE" in
+  1)
+    set_env COMPOSE_PROFILES "prod,tunnel"
+    # Vacíos = la app deduce su dirección de cada petición (se adapta cuando el túnel cambia)
+    set_env WEB_URL ""
+    set_env GOOGLE_REDIRECT_URI ""
+    ;;
+  2)
+    IP="$(curl -fsS --max-time 10 https://api.ipify.org || true)"
+    read -rp "IP pública del servidor [${IP}]: " IP_IN
+    IP="${IP_IN:-$IP}"
+    if ! [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then echo "IP inválida"; exit 1; fi
+    DOMAIN="citas.${IP//./-}.sslip.io"
+    set_env COMPOSE_PROFILES "prod,caddy"
+    set_env APP_DOMAIN "$DOMAIN"
+    set_env WEB_URL "https://${DOMAIN}"
+    set_env GOOGLE_REDIRECT_URI "https://${DOMAIN}/api/v1/auth/google/callback"
+    if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+      ufw allow 80/tcp; ufw allow 443/tcp; ufw allow 443/udp
+    fi
+    ;;
+  *) echo "Opción inválida"; exit 1 ;;
+esac
+
+# Detiene el servicio del otro modo (por si se cambió de modo)
+docker compose --profile caddy --profile tunnel stop caddy tunnel >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------- Levantar
 info "Construyendo y levantando la aplicación (la primera vez tarda varios minutos)…"
-docker compose --profile prod up -d --build
+docker compose up -d --build --remove-orphans
 
 info "Esperando a que la API esté lista…"
 for _ in $(seq 1 60); do
@@ -95,39 +108,38 @@ for _ in $(seq 1 60); do
   sleep 5
 done
 
-# ---------------------------------------------------------------- 6. Datos iniciales
 info "Cargando datos iniciales…"
 docker compose exec -T api node dist/prisma-seed/seed.js
 
 # ---------------------------------------------------------------- Resumen
-GOOGLE_ID="$(grep '^GOOGLE_CLIENT_ID=' .env | cut -d= -f2- || true)"
-cat <<EOF
+if [[ "$MODE" == "1" ]]; then
+  bash deploy/tunel-url.sh
+else
+  cat <<EOF
 
 =====================================================================
   ✅ Aplicación desplegada:   https://${DOMAIN}
 =====================================================================
   En Google Cloud → Clientes → su ID de cliente OAuth, agregue:
+    Orígenes autorizados de JavaScript:   https://${DOMAIN}
+    URI de redireccionamiento autorizados: https://${DOMAIN}/api/v1/auth/google/callback
 
-    Orígenes autorizados de JavaScript:
-      https://${DOMAIN}
-
-    URI de redireccionamiento autorizados:
-      https://${DOMAIN}/api/v1/auth/google/callback
-
-  El certificado HTTPS se obtiene en el primer minuto. Si la página no abre,
-  verifique que los puertos 80 y 443 lleguen al servidor:  sudo docker compose logs caddy
+  El certificado HTTPS requiere que los puertos 80 y 443 lleguen a este servidor.
+  Revise:  sudo docker compose logs caddy
+=====================================================================
 EOF
-if [[ -z "$GOOGLE_ID" ]]; then
+fi
+
+if [[ -z "$(get_env GOOGLE_CLIENT_ID)" ]]; then
   cat <<EOF
 
   [!] Falta GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en ${PROJECT_DIR}/.env
-      Complételos y aplique con:   sudo docker compose --profile prod up -d
+      Complételos y aplique con:   sudo docker compose up -d
 EOF
 fi
 cat <<EOF
 
   Estado:     sudo docker compose ps
-  Registros:  sudo docker compose logs -f caddy api
+  Registros:  sudo docker compose logs -f api
   Respaldos:  ${PROJECT_DIR}/backups
-=====================================================================
 EOF

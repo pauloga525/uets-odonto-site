@@ -16,19 +16,19 @@ export interface GoogleIdentity {
 export class GoogleOidcService {
   constructor(private readonly config: AppConfig) {}
 
-  private client(): OAuth2Client {
+  private client(redirectUri: string): OAuth2Client {
     if (!this.config.google.configured) {
       throw new ServiceUnavailableException('Google OAuth no está configurado (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).');
     }
     return new OAuth2Client({
       clientId: this.config.google.clientId,
       clientSecret: this.config.google.clientSecret,
-      redirectUri: this.config.google.redirectUri,
+      redirectUri,
     });
   }
 
-  async createAuthRequest(state: string, hostedDomain?: string): Promise<{ url: string; verifier: string }> {
-    const client = this.client();
+  async createAuthRequest(state: string, redirectUri: string, hostedDomain?: string): Promise<{ url: string; verifier: string }> {
+    const client = this.client(redirectUri);
     const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync();
     const url = client.generateAuthUrl({
       scope: ['openid', 'email', 'profile'],
@@ -43,8 +43,8 @@ export class GoogleOidcService {
     return { url, verifier: codeVerifier };
   }
 
-  async exchange(code: string, verifier: string): Promise<GoogleIdentity> {
-    const client = this.client();
+  async exchange(code: string, verifier: string, redirectUri: string): Promise<GoogleIdentity> {
+    const client = this.client(redirectUri);
     const { tokens } = await client.getToken({ code, codeVerifier: verifier });
     if (!tokens.id_token) throw new Error('Google no devolvió id_token');
     const ticket = await client.verifyIdToken({ idToken: tokens.id_token, audience: this.config.google.clientId });

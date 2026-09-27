@@ -1,7 +1,11 @@
 name: sistema-odonto
 
 # Desarrollo:  docker compose up -d db
-# Producción:  sudo bash deploy/instalar-ubuntu.sh   (Caddy + sslip.io, ver docs/DESPLIEGUE-UBUNTU.md)
+# Producción:  sudo bash deploy/instalar-ubuntu.sh  (ver docs/DESPLIEGUE-UBUNTU.md)
+#   El instalador escribe COMPOSE_PROFILES en .env y luego basta con:  docker compose up -d
+#     prod    base de datos + API + Nginx (web) + respaldos
+#     caddy   HTTPS con Caddy + sslip.io (requiere puertos 80/443 abiertos)
+#     tunnel  Cloudflare Tunnel rápido (*.trycloudflare.com): sin abrir puertos; la dirección cambia al reiniciar
 
 services:
   db:
@@ -68,7 +72,17 @@ services:
       - caddy_config:/config
     depends_on:
       - web
-    profiles: ["prod"]
+    profiles: ["caddy"]
+
+  # Cloudflare Tunnel rápido: publica Nginx en https://<palabras>.trycloudflare.com sin abrir puertos.
+  # La dirección se muestra con:  sudo bash deploy/tunel-url.sh
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://web:80
+    depends_on:
+      - web
+    profiles: ["tunnel"]
 
   backup:
     image: postgres:16-alpine

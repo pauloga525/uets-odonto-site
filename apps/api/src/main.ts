@@ -21,7 +21,8 @@ export async function configureApp(app: NestExpressApplication) {
   );
   app.use(cookieParser());
   app.setGlobalPrefix('api/v1');
-  app.enableCors({ origin: config.webUrl, credentials: true });
+  // En producción todo va por el mismo origen (Nginx/túnel), así que CORS solo hace falta si se fija WEB_URL.
+  if (config.webUrl) app.enableCors({ origin: config.webUrl, credentials: true });
   app.enableShutdownHooks();
   return config;
 }

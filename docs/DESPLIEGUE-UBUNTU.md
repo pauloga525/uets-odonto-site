@@ -1,4 +1,39 @@
-# Despliegue en Ubuntu Server con dominio gratuito (sslip.io)
+# Despliegue en Ubuntu Server
+
+El instalador ofrece dos modos:
+
+| Modo | Dirección | Puertos | Nota |
+|---|---|---|---|
+| **1. Cloudflare Tunnel rápido** (por defecto) | `https://<palabras>.trycloudflare.com` | **No abre ninguno** | La dirección cambia si el túnel se reinicia |
+| 2. Caddy + sslip.io | `https://citas.<IP-pública>.sslip.io` | 80 y 443 redirigidos al servidor | Dirección fija |
+
+## Modo 1 — Cloudflare Tunnel rápido
+
+```
+Usuario ──HTTPS──▶ Cloudflare ══túnel══▶ cloudflared (servidor) ──▶ Nginx ──▶ API ──▶ PostgreSQL
+```
+
+1. `sudo bash deploy/instalar-ubuntu.sh` → opción **1**. Al final muestra la dirección, p. ej.
+   `https://tres-palabras-azar.trycloudflare.com`.
+2. En Google Cloud → Clientes → su ID de cliente, agregue esa dirección como **origen** y
+   `<dirección>/api/v1/auth/google/callback` como **URI de redireccionamiento**.
+3. Ponga `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en `.env` y aplique: `sudo docker compose up -d`.
+
+**Cuando la dirección cambie** (reinicio del servidor, de Docker o del contenedor `tunnel`):
+
+```bash
+sudo bash deploy/tunel-url.sh      # muestra la dirección nueva y las URIs para Google
+```
+
+La aplicación se adapta sola (deduce su dirección de cada visita); solo hay que reemplazar las dos direcciones
+en Google. Para no cambiarla sin necesidad, evite `docker compose down` y reinicie solo lo necesario, p. ej.
+`sudo docker compose restart api`. Limitaciones del túnel rápido según Cloudflare: sin garantía de disponibilidad y
+pensado para pruebas; para uso definitivo conviene un túnel con dominio propio o el modo 2.
+
+---
+
+## Modo 2 — Caddy + sslip.io
+
 
 Sin comprar dominio: **sslip.io** convierte la IP del servidor en un nombre válido.
 Si la IP pública es `200.1.2.3`, la app queda en **`https://citas.200-1-2-3.sslip.io`**, con certificado HTTPS

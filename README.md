@@ -119,9 +119,9 @@ Guía completa: **[docs/DESPLIEGUE-UBUNTU.md](docs/DESPLIEGUE-UBUNTU.md)**. En u
 sudo bash deploy/instalar-ubuntu.sh
 ```
 
-Instala Docker, crea el `.env` con secretos aleatorios, usa el dominio gratuito `citas.<IP-con-guiones>.sslip.io`
-y levanta todo con HTTPS automático: **Caddy** (certificado de Let's Encrypt) → **Nginx** (SPA + proxy de `/api`,
-REST y WebSocket) → **API** → **PostgreSQL** (solo accesible desde el propio servidor). Incluye respaldos diarios.
+Instala Docker, crea el `.env` con secretos aleatorios y ofrece dos modos de publicación: **Cloudflare Tunnel rápido**
+(`*.trycloudflare.com`, sin abrir puertos; `deploy/tunel-url.sh` muestra la dirección actual) o **Caddy + sslip.io**
+(HTTPS con Let's Encrypt; requiere puertos 80/443). Detrás: **Nginx** → **API** → **PostgreSQL**. Incluye respaldos diarios.
 
 ## Segunda etapa (pendiente)
 

@@ -35,12 +35,22 @@ export class AuthController {
   /** Inicia el flujo OIDC con Google. */
   @Public()
   @Get('google')
-  async googleStart(@Res() res: Response) {
+  async googleStart(@Req() req: Request, @Res() res: Response) {
     const { allowedDomains } = await this.settings.get();
     const state = CryptoService.randomToken(24);
-    const { url, verifier } = await this.google.createAuthRequest(state, allowedDomains.length === 1 ? allowedDomains[0] : undefined);
-    await this.tokens.setOAuthTx(res, { state, verifier });
+    const redirectUri = this.redirectUri(req);
+    const { url, verifier } = await this.google.createAuthRequest(state, redirectUri, allowedDomains.length === 1 ? allowedDomains[0] : undefined);
+    await this.tokens.setOAuthTx(res, { state, verifier, redirectUri });
     res.redirect(url);
+  }
+
+  /**
+   * URI de retorno de Google: la fija en GOOGLE_REDIRECT_URI o, si está vacía, la deducida de la
+   * dirección con la que se visita la app (útil con el túnel de Cloudflare, cuya dirección cambia).
+   * No abre un riesgo: Google solo acepta URIs registradas previamente en la consola.
+   */
+  private redirectUri(req: Request): string {
+    return this.config.google.redirectUri || `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
   }
 
   /** Callback de Google: valida state/PKCE, dominio y rol; crea la sesión y redirige al frontend. */
@@ -58,7 +68,7 @@ export class AuthController {
     if (error) return fail('cancelled');
     if (!code || !state || !tx || tx.state !== state) return fail('oauth');
     try {
-      const identity = await this.google.exchange(code, tx.verifier);
+      const identity = await this.google.exchange(code, tx.verifier, tx.redirectUri);
       const user = await this.auth.login(
         { ...identity, googleSub: identity.sub },
         { ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null },

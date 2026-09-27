@@ -96,16 +96,16 @@ export class TokenService {
 
   /* ---- Transacción OAuth (state + PKCE verifier) firmada en cookie de 10 min ---- */
 
-  async setOAuthTx(res: Response, tx: { state: string; verifier: string }): Promise<void> {
+  async setOAuthTx(res: Response, tx: { state: string; verifier: string; redirectUri: string }): Promise<void> {
     const token = await this.jwt.signAsync(tx, { secret: this.config.jwtAccessSecret, expiresIn: 600 });
     res.cookie(OAUTH_TX_COOKIE, token, { ...this.cookieBase(), path: AUTH_PATH, maxAge: 600_000 });
   }
 
-  async readOAuthTx(res: Response, token: string | undefined): Promise<{ state: string; verifier: string } | null> {
+  async readOAuthTx(res: Response, token: string | undefined): Promise<{ state: string; verifier: string; redirectUri: string } | null> {
     res.clearCookie(OAUTH_TX_COOKIE, { ...this.cookieBase(), path: AUTH_PATH });
     if (!token) return null;
     try {
-      return await this.jwt.verifyAsync<{ state: string; verifier: string }>(token, { secret: this.config.jwtAccessSecret });
+      return await this.jwt.verifyAsync<{ state: string; verifier: string; redirectUri: string }>(token, { secret: this.config.jwtAccessSecret });
     } catch {
       return null;
     }

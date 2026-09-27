@@ -10,12 +10,14 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().default(3000),
   DATABASE_URL: z.string().min(1),
-  WEB_URL: z.string().url().default('http://localhost:4200'),
+  // Vacío = redirecciones relativas al mismo origen (modo túnel, cuya dirección cambia)
+  WEB_URL: z.union([z.literal(''), z.string().url()]).default(''),
   APP_TIMEZONE: z.string().default('America/Guayaquil'),
   COOKIE_SECURE: bool,
   GOOGLE_CLIENT_ID: z.string().default(''),
   GOOGLE_CLIENT_SECRET: z.string().default(''),
-  GOOGLE_REDIRECT_URI: z.string().default('http://localhost:4200/api/v1/auth/google/callback'),
+  // Vacío = se deduce de la dirección con la que se visita la app
+  GOOGLE_REDIRECT_URI: z.string().default(''),
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres'),
   DATA_ENCRYPTION_KEY: z
     .string()
