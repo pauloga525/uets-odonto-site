@@ -200,7 +200,8 @@ interface SlotGroup {
       font: var(--mat-sys-label-small);
       color: var(--mat-sys-on-surface-variant);
     }
-    .slot.selected {
+    .slot.selected,
+    .slot.selected:hover:not(:disabled) {
       background: var(--mat-sys-primary);
       border-color: var(--mat-sys-primary);
       color: var(--mat-sys-on-primary);
