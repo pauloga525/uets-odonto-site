@@ -11,6 +11,12 @@ disponibilidad en tiempo real y **garantía en base de datos de que un horario n
 | Autenticación | Google OpenID Connect (Authorization Code + PKCE) → sesión propia en cookies httpOnly |
 | Compartido | `@odonto/shared`: enums, máquina de estados, esquemas Zod, DTOs y utilidades de fecha |
 
+## Documentación
+
+- **[Manual de uso](docs/MANUAL-DE-USO.md)**: funcionamiento, uso por rol (paciente, doctor, administrador), ejecución y
+  actualización del servidor.
+- **[Despliegue en Ubuntu](docs/DESPLIEGUE-UBUNTU.md)**: instalación en producción con Cloudflare Tunnel.
+
 ## Estructura
 
 ```
