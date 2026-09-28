@@ -25,6 +25,14 @@ import { Observable } from 'rxjs';
 
 export const API = '/api/v1';
 
+export interface MailStatus {
+  configured: boolean;
+  from: string | null;
+  pending: number;
+  failed: number;
+  sentLast24h: number;
+}
+
 type Params = Record<string, string | number | boolean | string[] | undefined | null>;
 
 function toParams(p: Params = {}): HttpParams {
@@ -135,6 +143,12 @@ export class ApiService {
   }
   updateSettings(input: AppSettings): Observable<AppSettings> {
     return this.http.put<AppSettings>(`${API}/settings`, input);
+  }
+  mailStatus(): Observable<MailStatus> {
+    return this.http.get<MailStatus>(`${API}/settings/mail-status`);
+  }
+  testEmail(): Observable<{ sentTo: string }> {
+    return this.http.post<{ sentTo: string }>(`${API}/settings/test-email`, {});
   }
   audit(q: Params): Observable<PageDto<AuditLogDto>> {
     return this.http.get<PageDto<AuditLogDto>>(`${API}/audit`, { params: toParams(q) });

@@ -161,6 +161,13 @@ los horarios libres más cercanos para que elija otro.
 
 Si ya tiene una cita activa, el sistema no permite reservar otra hasta que esa finalice.
 
+### 4.2.1 Correo con la invitación de calendario
+Al reservar, el paciente recibe un correo de **noreply@uets.edu.ec** con la **invitación de calendario** de su cita
+(recordatorios **1 día** y **1 hora** antes). En Gmail aparece como evento y se agrega a Google Calendar con un clic.
+También recibe un correo si el consultorio **reprograma** la cita (el evento se mueve solo en su calendario), la
+**cancela** (el evento se elimina) o le agenda una **cita de seguimiento**. Si responde el correo, la respuesta llega al
+consultorio.
+
 ### 4.3 Mis citas
 Pestañas **Próximas**, **Historial** y **Canceladas**, con el estado de cada cita. Las citas de seguimiento indican
 de qué cita provienen.
@@ -281,6 +288,9 @@ quitarlo, use la **X**.
   "cualquier texto". Ejemplo: `*.est@uets.edu.ec` bloquea las cuentas estudiantiles.
   - **Probar un correo:** escriba un correo y el sistema indica si puede ingresar o por qué no.
 - **Políticas de reserva:** antelación mínima (minutos) y máximo de citas activas por paciente.
+- **Correos a pacientes:** interruptor para activar o desactivar los correos, estado del envío (remitente, enviados en
+  24 h, pendientes y fallidos) y botón **Enviar correo de prueba a mi cuenta**. Los correos se envían desde una cola con
+  reintentos: si Gmail falla, la cita se guarda igual y el correo se reintenta solo (1, 5, 15, 60 y 180 minutos).
 - **Guardar cambios.**
 
 ### 6.6 Auditoría

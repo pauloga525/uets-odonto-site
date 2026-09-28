@@ -48,6 +48,7 @@ async function main() {
         blockedEmailPatterns: list(process.env.BLOCKED_EMAIL_PATTERNS ?? '*.est@uets.edu.ec'),
         bookingLeadMinutes: 60,
         maxActivePerPatient: 1,
+        emailNotifications: true,
         clinicName: 'Consultorio Médico y Odontológico UETS',
         clinicLocation: 'Consultorio médico UETS',
       },

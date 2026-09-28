@@ -43,6 +43,11 @@ Google Cloud → *Google Auth Platform* → *Clientes* → su cliente → agregu
 | Orígenes autorizados de JavaScript | `https://<palabras>.trycloudflare.com` |
 | URI de redireccionamiento autorizados | `https://<palabras>.trycloudflare.com/api/v1/auth/google/callback` |
 
+**Correos a pacientes:** el instalador pide la **contraseña de aplicación** de `noreply@uets.edu.ec`
+(se crea en https://myaccount.google.com/apppasswords con esa cuenta, que debe tener la verificación en dos pasos
+activa). Si la omitió, complete `SMTP_PASS` en `.env`. Después, en **Configuración → Correos a pacientes** use
+**Enviar correo de prueba** para confirmar que funciona.
+
 Si aún no puso `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en `.env`, hágalo (`sudo nano .env`) y aplique:
 
 ```bash

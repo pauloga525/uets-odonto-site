@@ -7,13 +7,14 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { matchesEmailPattern, settingsSchema, type AppSettings } from '@odonto/shared';
-import { ApiService } from '../../core/api.service';
+import { ApiService, type MailStatus } from '../../core/api.service';
 import { NotifyService } from '../../core/notify.service';
 
 @Component({
   selector: 'app-settings-page',
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatChipsModule, MatButtonModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatChipsModule, MatButtonModule, MatIconModule, MatProgressSpinnerModule, MatSlideToggleModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page narrow">
@@ -103,6 +104,33 @@ import { NotifyService } from '../../core/notify.service';
             </div>
           </section>
 
+          <section class="surface">
+            <h2 class="section-title"><mat-icon aria-hidden="true">mail</mat-icon>Correos a pacientes</h2>
+            <p class="muted">
+              Al reservar, reprogramar, cancelar o agendar un seguimiento, el paciente recibe un correo con la invitación de
+              calendario (recordatorios 1 día y 1 hora antes). Si la cita se reprograma o cancela, el evento se actualiza o se
+              elimina de su calendario.
+            </p>
+            <mat-slide-toggle name="emailNotifications" [(ngModel)]="m.emailNotifications">Enviar correos a los pacientes</mat-slide-toggle>
+
+            @if (mail(); as st) {
+              <div class="mail-status" [class.off]="!st.configured">
+                <mat-icon aria-hidden="true">{{ st.configured ? 'check_circle' : 'error' }}</mat-icon>
+                @if (st.configured) {
+                  <div>
+                    <strong>Envío configurado</strong> — remitente <code>{{ st.from }}</code>
+                    <span class="muted">· {{ st.sentLast24h }} enviados en 24 h · {{ st.pending }} pendientes{{ st.failed ? ' · ' + st.failed + ' fallidos' : '' }}</span>
+                  </div>
+                } @else {
+                  <div><strong>El correo no está configurado en el servidor.</strong> Complete <code>SMTP_HOST</code>, <code>SMTP_USER</code> y <code>SMTP_PASS</code> en el archivo <code>.env</code>.</div>
+                }
+              </div>
+              <button matButton="tonal" type="button" (click)="sendTest()" [disabled]="!st.configured || testing()">
+                <mat-icon>send</mat-icon>{{ testing() ? 'Enviando…' : 'Enviar correo de prueba a mi cuenta' }}
+              </button>
+            }
+          </section>
+
           @if (error()) {
             <p class="error" role="alert">{{ error() }}</p>
           }
@@ -121,6 +149,25 @@ import { NotifyService } from '../../core/notify.service';
       display: grid;
       place-items: center;
       padding: 48px;
+    }
+    .mail-status {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 16px 0 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--st-finished-bg);
+      color: var(--st-finished-fg);
+      font: var(--mat-sys-body-medium);
+      .muted {
+        color: inherit;
+        opacity: 0.8;
+      }
+    }
+    .mail-status.off {
+      background: var(--mat-sys-error-container);
+      color: var(--mat-sys-on-error-container);
     }
     .stack {
       display: flex;
@@ -172,9 +219,31 @@ export class SettingsPage implements OnInit {
   protected readonly saving = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly separators = [ENTER, COMMA];
+  protected readonly mail = signal<MailStatus | null>(null);
+  protected readonly testing = signal(false);
 
   ngOnInit(): void {
     this.api.settings().subscribe({ next: (s) => this.model.set({ ...s }), error: (e) => this.notify.error(e) });
+    this.loadMailStatus();
+  }
+
+  private loadMailStatus() {
+    this.api.mailStatus().subscribe({ next: (s) => this.mail.set(s), error: () => this.mail.set(null) });
+  }
+
+  protected sendTest() {
+    this.testing.set(true);
+    this.api.testEmail().subscribe({
+      next: (r) => {
+        this.testing.set(false);
+        this.notify.success(`Correo de prueba enviado a ${r.sentTo}. Revise su bandeja de entrada.`);
+        this.loadMailStatus();
+      },
+      error: (e) => {
+        this.testing.set(false);
+        this.notify.error(e);
+      },
+    });
   }
 
   protected addDomain(e: MatChipInputEvent) {

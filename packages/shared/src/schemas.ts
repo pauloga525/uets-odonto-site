@@ -106,6 +106,8 @@ export const settingsSchema = z.object({
   ),
   bookingLeadMinutes: z.number().int().min(0).max(10080),
   maxActivePerPatient: z.number().int().min(1).max(20),
+  /** Enviar al paciente correos con invitación de calendario (reserva, seguimiento, reprogramación, cancelación). */
+  emailNotifications: z.boolean(),
   clinicName: z.string().trim().min(1).max(150),
   clinicLocation: z.string().trim().max(200),
 });

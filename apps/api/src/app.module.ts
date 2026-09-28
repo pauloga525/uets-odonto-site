@@ -22,6 +22,8 @@ import { TokenService } from './modules/auth/token.service';
 import { AvailabilityController } from './modules/availability/availability.controller';
 import { AvailabilityService } from './modules/availability/availability.service';
 import { HealthController } from './modules/health.controller';
+import { MailerService } from './modules/notifications/mailer.service';
+import { NotificationsService } from './modules/notifications/notifications.service';
 import { RealtimeGateway } from './modules/realtime/realtime.gateway';
 import { SettingsController } from './modules/settings/settings.controller';
 import { SettingsService } from './modules/settings/settings.service';
@@ -68,6 +70,8 @@ class CoreModule {}
     SlotsService,
     AvailabilityService,
     AppointmentsService,
+    MailerService,
+    NotificationsService,
     RealtimeGateway,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },

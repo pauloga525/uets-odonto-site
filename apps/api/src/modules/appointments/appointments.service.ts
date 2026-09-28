@@ -22,6 +22,7 @@ import { fromDbDate, fromDbTime, toDbDate, toDbTime } from '../../common/db-time
 import { DomainException } from '../../common/domain.exception';
 import { PrismaService, Tx, isUniqueViolation } from '../../common/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { SettingsService } from '../settings/settings.service';
 import { generateSlots } from '../slots/slot-generator';
@@ -59,6 +60,7 @@ export class AppointmentsService {
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
     private readonly realtime: RealtimeGateway,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -224,11 +226,13 @@ export class AppointmentsService {
   async book(ctx: RequestContext, input: BookAppointmentInput): Promise<AppointmentDto> {
     const viewer = ctx.user;
     let patientId = viewer.id;
+    let patientEmail = viewer.email;
     if (this.isStaff(viewer)) {
       if (!input.patientId) throw DomainException.unprocessable('VALIDATION', 'Seleccione el paciente para la cita.');
       const p = await this.prisma.user.findUnique({ where: { id: input.patientId } });
       if (!p || !p.active) throw DomainException.notFound('Paciente no encontrado');
       patientId = p.id;
+      patientEmail = p.email;
     }
     const doctorId = viewer.role === 'DOCTOR' ? viewer.doctorId! : await this.slots.resolveDoctorId(input.doctorId);
 
@@ -247,6 +251,7 @@ export class AppointmentsService {
       }
       const a = await this.insertAppointment(tx, { doctorId, patientId, slot: input, createdById: viewer.id });
       await this.audit.log(ctx, { action: 'RESERVAR_CITA', entity: 'appointment', entityId: a.id, toStatus: 'RESERVADA', metadata: { date: input.date, startTime: input.startTime } }, tx);
+      await this.notifications.enqueue(tx, a.id, 'RESERVADA', patientEmail, a.version);
       return a;
     });
 
@@ -290,7 +295,11 @@ export class AppointmentsService {
   async cancel(ctx: RequestContext, id: number, reason?: string): Promise<AppointmentDto> {
     if (ctx.user.role === 'PATIENT') throw DomainException.forbidden('Para cancelar tu cita, comunícate con el consultorio.');
     const a = await this.load(id, ctx.user);
-    await this.prisma.$transaction((tx) => this.applyTransition(tx, ctx, a, 'cancel', { cancelReason: reason ?? null }));
+    await this.prisma.$transaction(async (tx) => {
+      await this.applyTransition(tx, ctx, a, 'cancel', { cancelReason: reason ?? null });
+      // La cancelación elimina el evento del calendario del paciente (mismo UID, SEQUENCE mayor)
+      await this.notifications.enqueue(tx, a.id, 'CANCELADA', a.patient.email, a.version + 1);
+    });
     this.realtime.emitSlotChanged({
       doctorId: a.doctorId,
       date: fromDbDate(a.appointmentDate),
@@ -317,6 +326,7 @@ export class AppointmentsService {
         previousAppointmentId: a.id,
       });
       await this.audit.log(ctx, { action: 'CREAR_SEGUIMIENTO', entity: 'appointment', entityId: f.id, toStatus: 'RESERVADA', metadata: { previousAppointmentId: a.id } }, tx);
+      await this.notifications.enqueue(tx, f.id, 'SEGUIMIENTO', a.patient.email, f.version);
       return f.id;
     });
 
@@ -343,6 +353,7 @@ export class AppointmentsService {
         previousAppointmentId: a.id,
       });
       await this.audit.log(ctx, { action: 'CREAR_SEGUIMIENTO', entity: 'appointment', entityId: created.id, toStatus: 'RESERVADA', metadata: { previousAppointmentId: a.id } }, tx);
+      await this.notifications.enqueue(tx, created.id, 'SEGUIMIENTO', a.patient.email, created.version);
       return created;
     });
     this.realtime.emitSlotChanged({ doctorId: a.doctorId, ...slot, available: false });
@@ -372,6 +383,8 @@ export class AppointmentsService {
         throw this.mapUniqueError(err);
       }
       await this.audit.log(ctx, { action: 'REPROGRAMAR_CITA', entity: 'appointment', entityId: id, metadata: { from: old, to: slot } }, tx);
+      // Actualiza el evento existente en el calendario del paciente (mismo UID, SEQUENCE mayor)
+      await this.notifications.enqueue(tx, id, 'REPROGRAMADA', a.patient.email, a.version + 1);
     });
     this.realtime.emitSlotChanged({ doctorId: a.doctorId, ...old, available: true });
     this.realtime.emitSlotChanged({ doctorId: a.doctorId, ...slot, available: false });

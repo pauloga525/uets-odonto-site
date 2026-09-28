@@ -27,6 +27,13 @@ const envSchema = z.object({
   BOOTSTRAP_ADMIN_EMAIL: z.string().default(''),
   BOOTSTRAP_DOCTOR_EMAIL: z.string().default(''),
   AUTH_DEV_LOGIN: bool,
+  // Correo saliente (cuenta noreply). Si falta SMTP_HOST, el envío de correos queda desactivado.
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().default(465),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+  MAIL_FROM: z.string().default(''),
+  MAIL_REPLY_TO: z.string().default(''),
 });
 
 /** Configuración tipada y validada al arrancar (falla rápido si falta algo). */
@@ -54,6 +61,18 @@ export class AppConfig {
   readonly bootstrapDoctorEmail = this.env.BOOTSTRAP_DOCTOR_EMAIL.trim().toLowerCase();
   /** El login de desarrollo jamás se habilita en producción, aunque la variable esté activa. */
   readonly devLoginEnabled = this.env.AUTH_DEV_LOGIN && !this.isProd;
+
+  readonly mail = {
+    // Con usuario, también se exige contraseña (evita reintentos inútiles con credenciales incompletas)
+    configured: !!this.env.SMTP_HOST && (!this.env.SMTP_USER || !!this.env.SMTP_PASS),
+    host: this.env.SMTP_HOST,
+    port: this.env.SMTP_PORT,
+    user: this.env.SMTP_USER,
+    // Google muestra la contraseña de aplicación con espacios; se quitan por si se copió así.
+    pass: this.env.SMTP_PASS.replace(/\s+/g, ''),
+    from: this.env.MAIL_FROM || this.env.SMTP_USER,
+    replyTo: this.env.MAIL_REPLY_TO,
+  };
 
   readonly accessTtlSeconds = 15 * 60;
   readonly refreshTtlSeconds = 7 * 24 * 60 * 60;

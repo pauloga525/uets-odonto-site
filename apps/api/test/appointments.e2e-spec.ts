@@ -8,6 +8,23 @@ import { ClockService } from '../src/common/clock.service';
 import { PrismaService } from '../src/common/prisma.service';
 import { AppConfig } from '../src/config/app-config';
 import { configureApp } from '../src/main';
+import { MailerService, OutgoingMail } from '../src/modules/notifications/mailer.service';
+import { NotificationsService } from '../src/modules/notifications/notifications.service';
+
+/** Doble del envío SMTP: guarda los correos en memoria y permite simular fallos. */
+const fakeMailer = {
+  enabled: true,
+  from: 'Citas UETS <noreply@uets.edu.ec>',
+  sent: [] as OutgoingMail[],
+  failNext: 0,
+  async send(mail: OutgoingMail) {
+    if (this.failNext > 0) {
+      this.failNext--;
+      throw new Error('SMTP no disponible (simulado)');
+    }
+    this.sent.push(mail);
+  },
+};
 
 /** Reloj fijo: 1 de octubre de 2026, 10:00 en Guayaquil (antes del primer período). */
 class FixedClock extends ClockService {
@@ -52,6 +69,8 @@ describe('Citas — integración con PostgreSQL', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ClockService)
       .useFactory({ factory: (c: AppConfig) => new FixedClock(c), inject: [AppConfig] })
+      .overrideProvider(MailerService)
+      .useValue(fakeMailer)
       .compile();
     app = moduleRef.createNestApplication<NestExpressApplication>();
     await configureApp(app as NestExpressApplication);
@@ -315,6 +334,93 @@ describe('Citas — integración con PostgreSQL', () => {
     it('un paciente no puede administrar disponibilidad', async () => {
       const p = await login('ana@uets.edu.ec');
       expect((await p.get('/availability/periods')).status).toBe(403);
+    });
+  });
+
+  describe('Notificaciones por correo con invitación de calendario', () => {
+    const unfold = (s: string) => s.replace(/\r\n /g, '');
+    let notifications: NotificationsService;
+    let apptId: number;
+
+    beforeAll(async () => {
+      notifications = app.get(NotificationsService);
+      await notifications.processQueue(); // vacía lo encolado por las pruebas anteriores
+      fakeMailer.sent = [];
+    });
+
+    it('al reservar, el paciente recibe la invitación con recordatorios 1 día y 1 hora antes', async () => {
+      const p = await login('correo@uets.edu.ec');
+      const res = await p.post('/appointments', { date: '2026-10-20', startTime: '08:00' });
+      expect(res.status).toBe(201);
+      apptId = res.body.id;
+
+      const row = await prisma.emailOutbox.findFirst({ where: { appointmentId: apptId } });
+      expect(row).toMatchObject({ kind: 'RESERVADA', toEmail: 'correo@uets.edu.ec', status: 'PENDIENTE', sequence: 0 });
+
+      expect(await notifications.processQueue()).toBe(1);
+      const mail = fakeMailer.sent.at(-1)!;
+      expect(mail.to).toBe('correo@uets.edu.ec');
+      expect(mail.subject).toBe('Cita reservada: Martes, 20 de octubre de 2026, 08:00');
+      const ics = unfold(mail.ical!.content);
+      expect(mail.ical!.method).toBe('REQUEST');
+      expect(ics).toContain(`UID:cita-${apptId}@citas.uets.edu.ec`);
+      expect(ics).toContain('DTSTART:20261020T130000Z'); // 08:00 en Guayaquil = 13:00 UTC
+      expect(ics).toContain('TRIGGER:-P1D');
+      expect(ics).toContain('TRIGGER:-PT1H');
+      expect(ics).toContain('mailto:noreply@uets.edu.ec');
+      expect((await prisma.emailOutbox.findFirst({ where: { appointmentId: apptId } }))!.status).toBe('ENVIADO');
+    });
+
+    it('al reprogramar, se actualiza el mismo evento (mismo UID, SEQUENCE mayor)', async () => {
+      const d = await login('doctor@uets.edu.ec');
+      const res = await d.agent.patch(`/api/v1/appointments/${apptId}`).set('X-XSRF-TOKEN', d.xsrf).send({ date: '2026-10-20', startTime: '10:00' });
+      expect(res.status).toBe(200);
+      await notifications.processQueue();
+      const mail = fakeMailer.sent.at(-1)!;
+      expect(mail.subject).toMatch(/^Su cita fue reprogramada: .*10:00$/);
+      const ics = unfold(mail.ical!.content);
+      expect(ics).toContain(`UID:cita-${apptId}@citas.uets.edu.ec`);
+      expect(ics).toContain('SEQUENCE:1');
+      expect(ics).toContain('DTSTART:20261020T150000Z');
+    });
+
+    it('al cancelar, se envía METHOD:CANCEL para quitar el evento del calendario', async () => {
+      const d = await login('doctor@uets.edu.ec');
+      expect((await d.post(`/appointments/${apptId}/cancel`, { reason: 'Doctor en capacitación' })).status).toBe(200);
+      await notifications.processQueue();
+      const mail = fakeMailer.sent.at(-1)!;
+      expect(mail.ical!.method).toBe('CANCEL');
+      expect(mail.subject).toMatch(/^Cita cancelada:/);
+      expect(mail.html).toContain('Doctor en capacitación');
+      expect(unfold(mail.ical!.content)).toContain('SEQUENCE:2');
+    });
+
+    it('si el correo falla, la reserva se guarda igual y el envío se reintenta más tarde', async () => {
+      fakeMailer.failNext = 1;
+      const p = await login('correo2@uets.edu.ec');
+      const res = await p.post('/appointments', { date: '2026-10-20', startTime: '13:00' });
+      expect(res.status).toBe(201); // la reserva no depende del correo
+
+      expect(await notifications.processQueue()).toBe(0);
+      const row = await prisma.emailOutbox.findFirst({ where: { appointmentId: res.body.id } });
+      expect(row).toMatchObject({ status: 'PENDIENTE', attempts: 1 });
+      expect(row!.lastError).toContain('SMTP no disponible');
+      expect(row!.sendAfter.getTime()).toBeGreaterThan(Date.now()); // espera antes del reintento
+
+      await prisma.emailOutbox.update({ where: { id: row!.id }, data: { sendAfter: new Date() } });
+      expect(await notifications.processQueue()).toBe(1);
+      expect((await prisma.emailOutbox.findUnique({ where: { id: row!.id } }))!.status).toBe('ENVIADO');
+    });
+
+    it('si el administrador desactiva los correos, no se encolan', async () => {
+      const admin = await login('admin@uets.edu.ec');
+      const current = (await admin.get('/settings')).body;
+      expect((await admin.agent.put('/api/v1/settings').set('X-XSRF-TOKEN', admin.xsrf).send({ ...current, emailNotifications: false })).status).toBe(200);
+      const p = await login('correo3@uets.edu.ec');
+      const res = await p.post('/appointments', { date: '2026-10-20', startTime: '14:00' });
+      expect(res.status).toBe(201);
+      expect(await prisma.emailOutbox.count({ where: { appointmentId: res.body.id } })).toBe(0);
+      await admin.agent.put('/api/v1/settings').set('X-XSRF-TOKEN', admin.xsrf).send({ ...current, emailNotifications: true });
     });
   });
 });

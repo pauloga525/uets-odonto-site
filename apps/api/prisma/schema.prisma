@@ -136,11 +136,37 @@ model Appointment {
   createdBy User?         @relation("AppointmentCreatedBy", fields: [createdById], references: [id])
   previous  Appointment?  @relation("FollowUps", fields: [previousAppointmentId], references: [id])
   followUps Appointment[] @relation("FollowUps")
+  emails    EmailOutbox[]
 
   @@index([doctorId, appointmentDate])
   @@index([patientId, appointmentDate])
   @@index([status])
   @@map("appointments")
+}
+
+/// Cola de correos (patrón "outbox"): se inserta en la misma transacción que la cita
+/// y un proceso en segundo plano la envía con reintentos. Un fallo de correo nunca afecta la reserva.
+model EmailOutbox {
+  id            Int       @id @default(autoincrement())
+  appointmentId Int       @map("appointment_id")
+  /// RESERVADA | SEGUIMIENTO | REPROGRAMADA | CANCELADA
+  kind          String
+  toEmail       String    @map("to_email")
+  /// SEQUENCE del evento iCalendar (versión de la cita al encolar)
+  sequence      Int
+  /// PENDIENTE | ENVIANDO | ENVIADO | FALLIDO
+  status        String    @default("PENDIENTE")
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+  sendAfter     DateTime  @default(now()) @map("send_after") @db.Timestamptz(3)
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([status, sendAfter])
+  @@index([appointmentId])
+  @@map("email_outbox")
 }
 
 model AuditLog {

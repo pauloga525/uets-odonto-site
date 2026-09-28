@@ -59,6 +59,28 @@ else
   info "Se conserva el .env existente."
 fi
 
+# ---------------------------------------------------------------- Correo a pacientes
+if ! grep -q '^SMTP_HOST=' .env; then # .env de una versión anterior: agrega la configuración de correo
+  set_env SMTP_HOST "smtp.gmail.com"
+  set_env SMTP_PORT "465"
+  set_env SMTP_USER "noreply@uets.edu.ec"
+  set_env SMTP_PASS ""
+  set_env MAIL_FROM "Citas UETS <noreply@uets.edu.ec>"
+  set_env MAIL_REPLY_TO "$(get_env BOOTSTRAP_DOCTOR_EMAIL)"
+fi
+if [[ -n "$(get_env SMTP_HOST)" && -z "$(get_env SMTP_PASS)" ]]; then
+  echo
+  echo "Correos a pacientes: contraseña de aplicación de Google de $(get_env SMTP_USER)"
+  echo "(se crea en https://myaccount.google.com/apppasswords con esa cuenta)."
+  read -rsp "Contraseña de aplicación (no se muestra; Enter para omitir): " SMTP_PASS_IN
+  echo
+  if [[ -n "$SMTP_PASS_IN" ]]; then
+    set_env SMTP_PASS "${SMTP_PASS_IN// /}"
+  else
+    echo "Sin contraseña: no se enviarán correos hasta completar SMTP_PASS en .env."
+  fi
+fi
+
 set_env COMPOSE_PROFILES "prod"
 # Vacíos = la app deduce su dirección de cada visita (se adapta cuando cambia la del túnel)
 set_env WEB_URL ""
